@@ -7,7 +7,10 @@ import com.brian.exception.domain.UsernameExistException;
 import com.brian.model.User;
 import com.brian.model.UserPrincipal;
 import com.brian.repository.UserRepository;
+import com.brian.service.EmailService;
+import com.brian.service.LoginAttemptService;
 import com.brian.service.UserService;
+import jakarta.mail.MessagingException;
 import jakarta.transaction.Transactional;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -25,6 +28,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.util.Date;
 import java.util.List;
 
+import static com.brian.constant.FileConstant.DEFAULT_USER_IMAGE_PATH;
 import static com.brian.constant.UserImplConstant.*;
 import static com.brian.enumeration.Role.ROLE_USER;
 
@@ -35,12 +39,14 @@ public class UserServiceImpl implements UserService, UserDetailsService {
     private final Logger LOGGER = LoggerFactory.getLogger(getClass());
     private UserRepository userRepository;
     private BCryptPasswordEncoder passwordEncoder;
-
-
+    private LoginAttemptService loginAttemptService;
+    private EmailService emailService;
     @Autowired
-    public UserServiceImpl(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserRepository userRepository, BCryptPasswordEncoder passwordEncoder, LoginAttemptService loginAttemptService, EmailService emailService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.loginAttemptService = loginAttemptService;
+        this.emailService = emailService;
     }
 
     @Override
@@ -50,6 +56,7 @@ public class UserServiceImpl implements UserService, UserDetailsService {
             LOGGER.error("No user found by username: " + username);
             throw new UsernameNotFoundException("No user found by username: " + username);
         } else {
+            validateLoginAttempt(user);
             user.setLastLoginDateDisplay(user.getLastLoginDate());
             user.setLastLoginDate(new Date());
             userRepository.save(user);
@@ -59,9 +66,17 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         }
     }
 
+    private void validateLoginAttempt(User user) {
+        if (user.isNotLocked()) {
+            if(loginAttemptService.hasExceededMaxAttempts(user.getUsername())) {
+                user.setNotLocked(false);
+            }
+        }
+    }
+
 
     @Override
-    public User register(String firstName, String lastName, String username, String email) throws UserNotFoundException, UsernameExistException, EmailExistException {
+    public User register(String firstName, String lastName, String username, String email) throws UserNotFoundException, UsernameExistException, EmailExistException, MessagingException {
         validateNewUsernameAndEmail(StringUtils.EMPTY, username, email);
         User user = new User();
         user.setUserId(generateUserId());
@@ -80,11 +95,12 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         user.setProfileImageUrl(getTemporaryProfileImageUrl());
         userRepository.save(user);
         LOGGER.info("New user created with password: " + password);
-        return null;
+        emailService.sendNewPasswordEmail(firstName, password, email);
+        return user;
     }
 
     private String getTemporaryProfileImageUrl() {
-        return ServletUriComponentsBuilder.fromCurrentContextPath().path("/user/image/profile/temp").toUriString();
+        return ServletUriComponentsBuilder.fromCurrentContextPath().path(DEFAULT_USER_IMAGE_PATH).toUriString();
     }
 
     private String encodePassword(String password) {
@@ -101,21 +117,23 @@ public class UserServiceImpl implements UserService, UserDetailsService {
 
     @Override
     public List<User> getUsers() {
-        return null;
+        return userRepository.findAll();
     }
 
     @Override
     public User findUserByUsername(String username) {
-        return null;
+        return userRepository.findUserByUsername(username);
     }
 
     @Override
     public User findUserByEmail(String email) {
-        return null;
+
+        return userRepository.findUserByEmail(email);
     }
 
     private User validateNewUsernameAndEmail(String currentUsername, String newUsername, String newEmail) throws UserNotFoundException, UsernameExistException, EmailExistException {
         User userByNewUsername = findUserByUsername(newUsername);
+        //System.out.println(userByNewUsername.getUsername());
         User userByNewEmail = findUserByEmail(newEmail);
         // Update case
         if(StringUtils.isNotBlank(currentUsername)) {
