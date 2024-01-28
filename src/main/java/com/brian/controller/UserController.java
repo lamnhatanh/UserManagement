@@ -6,12 +6,11 @@ import com.brian.exception.domain.UserNotFoundException;
 import com.brian.exception.domain.UsernameExistException;
 import com.brian.model.User;
 import com.brian.service.UserService;
-import jakarta.persistence.NoResultException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.NoHandlerFoundException;
+
 
 @RestController
 @RequestMapping("/user")
